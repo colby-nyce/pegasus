@@ -62,6 +62,11 @@ namespace atlas
             dbg_studio_logger_.dumpMetadata(key, value);
         }
 
+        void dbgStudioSimEnd(const std::string& msg)
+        {
+            dbg_studio_logger_.dumpMetadata("sim_end", msg);
+        }
+
         uint64_t getXlen() const { return xlen_; }
 
         HartId getHartId() const { return hart_id_; }
