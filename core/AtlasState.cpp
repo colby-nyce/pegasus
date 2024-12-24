@@ -111,6 +111,12 @@ namespace atlas
             inst_logger_.insertPostExecuteAction(action_group);
         }
 
+        if (dbg_studio_logger_.enabled())
+        {
+            dbg_studio_logger_.insertPreExecuteAction(action_group);
+            dbg_studio_logger_.insertPostExecuteAction(action_group);
+        }
+
         for (auto observer : observers_)
         {
             if (observer->enabled())

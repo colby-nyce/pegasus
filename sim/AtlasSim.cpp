@@ -3,11 +3,15 @@
 namespace atlas
 {
     AtlasSim::AtlasSim(sparta::Scheduler* scheduler, const std::string & workload,
-                       uint64_t ilimit) :
+                       uint64_t ilimit, const std::string& dbg_studio_json_file) :
         sparta::app::Simulation("AtlasSim", scheduler),
         workload_(workload),
         ilimit_(ilimit)
     {
+        if (!dbg_studio_json_file.empty()) {
+            dbg_studio_json_fout_.reset(new std::ofstream(dbg_studio_json_file));
+            sparta_assert(dbg_studio_json_fout_->is_open(), "Failed to open Debug Studio JSON file: " + dbg_studio_json_file);
+        }
     }
 
     AtlasSim::~AtlasSim() { getRoot()->enterTeardown(); }
@@ -93,6 +97,7 @@ namespace atlas
             AtlasState* state = state_.back();
             state->setAtlasSystem(system_);
             state->setPc(system_->getStartingPc());
+            state->dbgStudioJsonFout(dbg_studio_json_fout_);
         }
     }
 } // namespace atlas

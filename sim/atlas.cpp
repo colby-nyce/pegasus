@@ -10,6 +10,8 @@ int main(int argc, char** argv)
     uint64_t ilimit = 0;
     std::string workload;
     const char* WORKLOAD = "workload";
+    std::string dbgstudio_json;
+    const char* DBGSTUDIO_JSON = "dbg-studio-dump-file";
 
     sparta::app::DefaultValues DEFAULTS;
     DEFAULTS.auto_summary_default = "off";
@@ -36,7 +38,10 @@ int main(int argc, char** argv)
             sparta::app::named_value<uint64_t>("LIMIT", &ilimit)->default_value(ilimit),
             "Stop simulation after the instruction limit has been reached")(
             WORKLOAD, sparta::app::named_value<std::string>(WORKLOAD, &workload),
-            "Worklad to run (ELF or JSON)");
+            "Worklad to run (ELF or JSON)")(
+            DBGSTUDIO_JSON,
+            sparta::app::named_value<std::string>(DBGSTUDIO_JSON, &dbgstudio_json),
+            "Debug Studio JSON dump file");
 
         // Add any positional command-line options
         po::positional_options_description & pos_opts = cls.getPositionalOptions();
@@ -59,7 +64,7 @@ int main(int argc, char** argv)
 
         // Create the simulator
         sparta::Scheduler scheduler;
-        atlas::AtlasSim sim(&scheduler, workload, ilimit);
+        atlas::AtlasSim sim(&scheduler, workload, ilimit, dbgstudio_json);
 
         cls.populateSimulation(&sim);
 

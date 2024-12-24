@@ -3,6 +3,7 @@
 #include "core/ActionGroup.hpp"
 #include "core/AtlasTranslationState.hpp"
 #include "core/observers/InstructionLogger.hpp"
+#include "core/observers/DbgStudioLogger.hpp"
 #include "arch/RegisterSet.hpp"
 #include "include/AtlasTypes.hpp"
 
@@ -50,6 +51,16 @@ namespace atlas
 
         // Not default -- defined in source file to reduce massive inlining
         ~AtlasState();
+
+        void dbgStudioJsonFout(std::shared_ptr<std::ofstream> fout) { dbg_studio_logger_.enable(fout); }
+
+        void dbgStudioDumpAllRegisters(const char* key = "regdump") { dbg_studio_logger_.dumpAllRegisters(key); }
+
+        template <typename T>
+        void dbgStudioMetadata(const char* key, const T& value)
+        {
+            dbg_studio_logger_.dumpMetadata(key, value);
+        }
 
         uint64_t getXlen() const { return xlen_; }
 
@@ -138,6 +149,48 @@ namespace atlas
             return csr_rset_->getRegister(reg_num);
         }
 
+        std::vector<sparta::Register*> getIntRegisters()
+        {
+            std::vector<sparta::Register*> regs;
+            for (size_t i = 0; i < int_rset_->getCount(); ++i)
+            {
+                regs.push_back(int_rset_->getRegister(i));
+            }
+            return regs;
+        }
+
+        std::vector<sparta::Register*> getFpRegisters()
+        {
+            std::vector<sparta::Register*> regs;
+            for (size_t i = 0; i < fp_rset_->getCount(); ++i)
+            {
+                regs.push_back(fp_rset_->getRegister(i));
+            }
+            return regs;
+        }
+
+        std::vector<sparta::Register*> getVecRegisters()
+        {
+            std::vector<sparta::Register*> regs;
+            for (size_t i = 0; i < vec_rset_->getCount(); ++i)
+            {
+                regs.push_back(vec_rset_->getRegister(i));
+            }
+            return regs;
+        }
+
+        std::vector<sparta::Register*> getCsrRegisters()
+        {
+            std::vector<sparta::Register*> regs;
+            for (size_t i = 0; i < csr_rset_->getCount(); ++i)
+            {
+                if (auto reg = csr_rset_->getRegister(i)) {
+                    regs.push_back(reg);
+                }
+            }
+            return regs;
+        }
+
         template <typename MemoryType> MemoryType readMemory(const Addr paddr);
 
         template <typename MemoryType> void writeMemory(const Addr paddr, const MemoryType value);
@@ -213,6 +266,9 @@ namespace atlas
 
         // Instruction Logger
         InstructionLogger inst_logger_;
+
+        // Debug Studio Logger
+        DbgStudioLogger dbg_studio_logger_{this};
 
         // Observers
         std::vector<Observer*> observers_;

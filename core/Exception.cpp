@@ -27,34 +27,39 @@ void Exception::onBindTreeEarly_()
 
 ActionGroup* Exception::handleException_(atlas::AtlasState* state)
 {
+    state->dbgStudioDumpAllRegisters("RegDumpBeforeExceptionHandled");
+
     switch (state->getPrivMode())
     {
     case PrivMode::USER:
-        return handleUModeException_(state);
+        handleUModeException_(state);
+        break;
     case PrivMode::MACHINE:
-        return handleMModeException_(state);
+        handleMModeException_(state);
+        break;
     case PrivMode::SUPERVISOR:
-        return handleSModeException_(state);
+        handleSModeException_(state);
+        break;
     default:
         sparta_assert(false, "Illegal privilege mode");
     }
 
-    return nullptr;
-}
+    state->dbgStudioDumpAllRegisters("RegDumpAfterExceptionHandled");
 
-ActionGroup* Exception::handleUModeException_(atlas::AtlasState* state)
-{
-    // TODO
     return state->getPostExceptionActionGroup();
 }
 
-ActionGroup* Exception::handleSModeException_(atlas::AtlasState* state)
+void Exception::handleUModeException_(atlas::AtlasState* state)
 {
     // TODO
-    return state->getPostExceptionActionGroup();
 }
 
-ActionGroup* Exception::handleMModeException_(atlas::AtlasState* state)
+void Exception::handleSModeException_(atlas::AtlasState* state)
+{
+    // TODO
+}
+
+void Exception::handleMModeException_(atlas::AtlasState* state)
 {
     const reg_t trap_handler_address = (READ_CSR_REG(MTVEC) & ~(reg_t)1);
     state->setNextPc(trap_handler_address);
@@ -107,8 +112,6 @@ ActionGroup* Exception::handleMModeException_(atlas::AtlasState* state)
 
     (void)mstatus;
     cause_.clearValid();
-
-    return state->getPostExceptionActionGroup();
 }
 
 } // namespace atlas

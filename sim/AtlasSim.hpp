@@ -14,7 +14,7 @@ namespace atlas
     class AtlasSim : public sparta::app::Simulation
     {
       public:
-        AtlasSim(sparta::Scheduler* scheduler, const std::string & workload, uint64_t ilimit);
+        AtlasSim(sparta::Scheduler* scheduler, const std::string & workload, uint64_t ilimit, const std::string& dbg_studio_json_file = "");
         ~AtlasSim();
 
         // Run the simulator
@@ -50,6 +50,7 @@ namespace atlas
 
         const std::string workload_;
         const uint64_t ilimit_;
+        std::shared_ptr<std::ofstream> dbg_studio_json_fout_;
 
         friend class AtlasCoSim;
     };

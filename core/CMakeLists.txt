@@ -15,6 +15,7 @@ add_library(atlascore
     observers/Observer.cpp
     observers/CoSimObserver.cpp
     observers/InstructionLogger.cpp
+    observers/DbgStudioLogger.cpp
 )
 
 target_include_directories(atlascore PUBLIC ${CMAKE_BINARY_DIR})
