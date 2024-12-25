@@ -34,11 +34,9 @@ namespace atlas
             return;
         }
 
-        std::ostringstream json;
-        json << "{";
-        json << "\"" << key << "\": {";
-        json << "\"hart\": \"" << state_->getHartId() << "\",";
-        json << "\"pc\": \"0x" << std::hex << state_->getPc() << "\",";
+        auto &fout = *dbg_studio_json_fout_;
+        fout << "REGISTER_DUMP." << key << "::hart:" << state_->getHartId() << ",pc:0x"
+             << std::hex << state_->getPc();
 
         auto int_regs = state_->getIntRegisters();
         auto csr_regs = state_->getCsrRegisters();
@@ -52,21 +50,20 @@ namespace atlas
         };
 
         for (auto reg : int_regs) {
-            json << "\"" << to_lower(reg->getName()) << "\": " << reg->dmiRead<uint64_t>() << "\"";
+            fout << "," << to_lower(reg->getName()) << ":0x" << std::hex << reg->dmiRead<uint64_t>();
             if (++idx < reg_count) {
-                json << ",";
+                fout << ",";
             }
         }
 
         for (auto reg : csr_regs) {
-            json << "\"" << to_lower(reg->getName()) << "\": " << reg->dmiRead<uint64_t>() << "\"";
+            fout << "," << to_lower(reg->getName()) << ":0x" << std::hex << reg->dmiRead<uint64_t>();
             if (++idx < reg_count) {
-                json << ",";
+                fout << ",";
             }
         }
 
-        json << "}}";
-        *dbg_studio_json_fout_ << json.str() << "\n";
+        fout << "\n";
     }
 
     void DbgStudioLogger::simulationEnding(const std::string& msg)
@@ -75,13 +72,8 @@ namespace atlas
             return;
         }
 
-        std::ostringstream oss;
-        oss << "{";
-        oss << "\"SIM_END\": {\"hart\": " << state_->getHartId() << ",";
-        oss << "\"msg\": \"" << msg << "\"}}";
-
-        auto json = oss.str();
-        *dbg_studio_json_fout_ << json << "\n";
+        auto &fout = *dbg_studio_json_fout_;
+        fout << "SIM_END::hart:" << state_->getHartId() << ",msg:" << msg << "\n";
 
         dbg_studio_json_fout_.reset();
         enabled_ = false;
@@ -135,49 +127,48 @@ namespace atlas
             dst_regs_[0].setValue(value);
         }
 
-        std::ostringstream json;
-        json << "{";
-        json << "\"hart\": \"" << state->getHartId() << "\",";
-        json << "\"pc\": " << pc_ << "\",";
-        json << "\"opc\": \"" << HEX8(opcode_) << "\",";
+        auto& fout = *dbg_studio_json_fout_;
+        fout << std::dec;
+        fout << "INST_DUMP::";
+        fout << "hart:" << state->getHartId() << ",";
+        fout << "pc:0x" << std::hex << pc_ << ",";
+        fout << "opc:0x" << std::hex << opcode_ << ",";
+
+        auto replace_commas = [](const std::string& s, char replace) {
+            std::string r = s;
+            for (auto& c : r) {
+                if (c == ',') {
+                    c = replace;
+                }
+            }
+            return r;
+        };
+
+        fout << "disasm:" << replace_commas(inst->dasmString(), '!') << ",";
+        fout << "priv:" << (uint64_t)state->getPrivMode() << ",";
+
         const auto & symbols = state->getAtlasSystem()->getSymbols();
         if (symbols.find(pc_) != symbols.end()) {
-            json << "\"symbols\": \"" << symbols.at(pc_) << "\",";
+            fout << "symbols:" << symbols.at(pc_) << ",";
         }
         if (src_regs_.size() > 0) {
-            json << "\"rs1\": \"" << src_regs_[0].reg_id.reg_name << "\",";
-            json << "\"rs1_val\": " << convertFromByteVector<uint64_t>(src_regs_[0].reg_value) << "\",";
+            fout << "rs1:" << src_regs_[0].reg_id.reg_name << ",";
+            fout << "rs1_val:0x" << std::hex << convertFromByteVector<uint64_t>(src_regs_[0].reg_value) << ",";
         }
         if (src_regs_.size() > 1) {
-            json << "\"rs2\": \"" << src_regs_[1].reg_id.reg_name << "\",";
-            json << "\"rs2_val\": " << convertFromByteVector<uint64_t>(src_regs_[1].reg_value) << "\",";
+            fout << "rs2:" << src_regs_[1].reg_id.reg_name << ",";
+            fout << "rs2_val:0x" << std::hex << convertFromByteVector<uint64_t>(src_regs_[1].reg_value) << ",";
         }
         if (dst_regs_.size() > 0) {
-            json << "\"rd\": \"" << dst_regs_[0].reg_id.reg_name << "\",";
-            json << "\"rd_prev\": " << convertFromByteVector<uint64_t>(dst_regs_[0].reg_prev_value) << "\",";
-            json << "\"rd_now\": " << convertFromByteVector<uint64_t>(dst_regs_[0].reg_value) << "\",";
+            fout << "rd:" << dst_regs_[0].reg_id.reg_name << ",";
+            fout << "rd_prev:0x" << std::hex << convertFromByteVector<uint64_t>(dst_regs_[0].reg_prev_value) << ",";
+            fout << "rd_now:0x" << std::hex << convertFromByteVector<uint64_t>(dst_regs_[0].reg_value) << ",";
         }
         if (inst->hasImmediate()) {
-            json << "\"imm\": \"" << inst->getImmediate() << "\",";
+            fout << "imm:" << std::dec << inst->getImmediate() << ",";
         }
 
-        // We have to replace the \t with spaces in the disasm string
-        // or the JSON will be invalid
-        std::string dasm;
-        for (auto c : inst->dasmString()) {
-            if (c == '\t') {
-                dasm += "    ";
-            } else {
-                dasm += c;
-            }
-        }
-
-        json << "\"disasm\": \"" << dasm << "\",";
-        json << "\"priv\": " << (uint64_t)state->getPrivMode();
-        json << "}";
-
-        *dbg_studio_json_fout_ << json.str() << "\n";
-
+        fout << std::dec << "\n";
         return nullptr;
     }
 } // namespace atlas

@@ -27,7 +27,7 @@ void Exception::onBindTreeEarly_()
 
 ActionGroup* Exception::handleException_(atlas::AtlasState* state)
 {
-    state->dbgStudioDumpAllRegisters("RegDumpBeforeExceptionHandled");
+    state->dbgStudioDumpAllRegisters("PreException");
 
     switch (state->getPrivMode())
     {
@@ -44,7 +44,7 @@ ActionGroup* Exception::handleException_(atlas::AtlasState* state)
         sparta_assert(false, "Illegal privilege mode");
     }
 
-    state->dbgStudioDumpAllRegisters("RegDumpAfterExceptionHandled");
+    state->dbgStudioDumpAllRegisters("PostException");
 
     return state->getPostExceptionActionGroup();
 }
