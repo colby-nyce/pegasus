@@ -298,8 +298,8 @@ namespace atlas
         std::ostringstream oss;
         oss << "{";
         oss << "\"fault\": \"pc\", ";
-        oss << "\"imperas\": \"" << HEX16(imperas_pc) << "\", ";
-        oss << "\"atlas\": \"" << HEX16(atlas_pc) << "\"";
+        oss << "\"imperas\": \"0x" << std::hex << imperas_pc << "\", ";
+        oss << "\"atlas\": \"0x" << std::hex << atlas_pc << "\"";
         oss << "}";
 
         auto msg = oss.str();
@@ -321,8 +321,8 @@ namespace atlas
         oss << "{";
         oss << "\"fault\": \"rd\", ";
         oss << "\"reg_name\": \"" << reg_name << "\", ";
-        oss << "\"imperas\": \"" << HEX16(imperas_reg) << "\", ";
-        oss << "\"atlas\": \"" << HEX16(atlas_reg) << "\"";
+        oss << "\"imperas\": \"0x" << std::hex << imperas_reg << "\", ";
+        oss << "\"atlas\": \"0x" << std::hex << atlas_reg << "\"";
         oss << "}";
 
         auto msg = oss.str();
