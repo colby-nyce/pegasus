@@ -4,6 +4,7 @@
 #include "include/AtlasUtils.hpp"
 
 #include "system/AtlasSystem.hpp"
+#include "core/Fetch.hpp"
 
 namespace atlas
 {
@@ -14,6 +15,11 @@ namespace atlas
             atlas::Action::createAction<&CoSimObserver::preExecute_>(this, "pre execute");
         post_execute_action_ =
             atlas::Action::createAction<&CoSimObserver::postExecute_>(this, "post execute");
+
+        Action post_exc_action =
+            atlas::Action::createAction<&CoSimObserver::postException_>(this, "post_exception");
+
+        post_exception_action_group_.addAction(post_exc_action);
     }
 
     ActionGroup* CoSimObserver::preExecute_(AtlasState* state)
@@ -54,6 +60,7 @@ namespace atlas
         }
 
         last_event_.mavis_opcode_info_ = inst->getMavisOpcodeInfo();
+        state->getPostExceptionActionGroup()->setNextActionGroup(&post_exception_action_group_);
 
         return nullptr;
     }
@@ -98,5 +105,23 @@ namespace atlas
         // TODO: next_priv_
 
         return nullptr;
+    }
+
+    ActionGroup* CoSimObserver::postException_(AtlasState* state)
+    {
+        dst_regs_.clear();
+        last_event_.register_reads_.clear();
+        last_event_.register_writes_.clear();
+        last_event_.done_ = true;
+        last_event_.next_pc_ = state->getPc();
+        last_event_.excp_type_ = ExcpType::FAULT;
+
+        sparta_assert(
+            last_event_.next_pc_ != last_event_.curr_pc_,
+            "Next PC is the same as the current PC! Check ordering of post-execute Events");
+        // TODO: for branches, is_change_of_flow_, alternate_next_pc_
+        // TODO: next_priv_
+
+        return state->getFetchUnit()->getActionGroup();
     }
 } // namespace atlas

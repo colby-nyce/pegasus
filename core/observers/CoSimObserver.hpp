@@ -2,6 +2,7 @@
 
 #include "core/observers/Observer.hpp"
 #include "cosim/Event.hpp"
+#include "core/ActionGroup.hpp"
 
 #include "sparta/utils/SpartaAssert.hpp"
 
@@ -23,9 +24,11 @@ namespace atlas
       private:
         ActionGroup* preExecute_(AtlasState* state);
         ActionGroup* postExecute_(AtlasState* state);
+        ActionGroup* postException_(AtlasState* state);
 
         uint64_t event_uid_ = 0;
         cosim::Event last_event_ = cosim::Event(event_uid_, cosim::Event::Type::INSTRUCTION);
+        ActionGroup post_exception_action_group_{"post_exception"};
 
         void reset_() override
         {

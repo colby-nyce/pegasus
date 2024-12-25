@@ -1,4 +1,6 @@
 #include "AtlasSim.hpp"
+#include "include/CSRFieldIdxs64.hpp"
+#include "arch/register_macros.hpp"
 
 namespace atlas
 {
@@ -98,6 +100,10 @@ namespace atlas
             state->setAtlasSystem(system_);
             state->setPc(system_->getStartingPc());
             state->dbgStudioJsonFout(dbg_studio_json_fout_);
+
+            const auto mstatus = state->getMStatusInitialValue();
+            POKE_CSR_REG(MSTATUS, mstatus);
+            state->dbgStudioDumpAllRegisters("RegDumpBeforeSim");
         }
     }
 } // namespace atlas

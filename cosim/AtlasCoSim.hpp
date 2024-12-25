@@ -27,7 +27,7 @@ namespace atlas
     class AtlasCoSim : public AtlasSim, public atlas::cosim::CoSim
     {
       public:
-        AtlasCoSim(sparta::Scheduler* scheduler, const std::string & workload, uint64_t ilimit);
+        AtlasCoSim(sparta::Scheduler* scheduler, const std::string & workload, uint64_t ilimit, const std::string& dbg_studio_dump_file = "");
         ~AtlasCoSim();
 
         void enableLogger(const std::string & filename = "")
@@ -78,6 +78,10 @@ namespace atlas
         const cosim::EventList & getUncommittedEvents(HartId hart) const override final;
         uint64_t getNumUncommittedEvents(HartId hart) const override final;
         uint64_t getNumUncommittedWrites(HartId hart) const override final;
+
+        void stepFailure(HartId hart);
+        void pcFailure(HartId hart, uint64_t imperas_pc, uint64_t atlas_pc);
+        void rdFailure(HartId hart, const std::string& reg_name, uint64_t imperas_reg, uint64_t atlas_reg);
 
       private:
         void bindTree_() override;

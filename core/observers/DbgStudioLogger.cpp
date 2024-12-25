@@ -79,28 +79,6 @@ namespace atlas
         *dbg_studio_json_fout_ << json.str() << "\n";
     }
 
-    template <typename T>
-    void DbgStudioLogger::dumpMetadata(const char* key, const T& value)
-    {
-        if (!enabled_) {
-            return;
-        }
-
-        // {
-        //   "metadata": {
-        //     <key>: <value>
-        //   }
-        // }
-
-        std::ostringstream json;
-        json << "{";
-        json << "\"metadata\": {";
-        json << "\"" << key << "\": \"" << value << "\"";
-        json << "}}";
-
-        *dbg_studio_json_fout_ << json.str() << "\n";
-    }
-
     ActionGroup* DbgStudioLogger::preExecute_(AtlasState* state)
     {
         reset_();

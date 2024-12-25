@@ -47,8 +47,8 @@ namespace atlas
     }
 
     AtlasCoSim::AtlasCoSim(sparta::Scheduler* scheduler, const std::string & workload,
-                           uint64_t ilimit) :
-        AtlasSim(scheduler, workload, ilimit),
+                           uint64_t ilimit, const std::string& dbg_studio_dump_file) :
+        AtlasSim(scheduler, workload, ilimit, dbg_studio_dump_file),
         cosim_logger_(getRoot(), "cosim", "Atlas Cosim Logger")
 
     {
@@ -267,4 +267,66 @@ namespace atlas
     {
         sparta_assert(false, "CoSim method is not implemented!");
     }
+
+    void AtlasCoSim::stepFailure(HartId hart)
+    {
+        auto state = getAtlasState(hart);
+
+        // {
+        //     "fault": "step"
+        // }
+
+        std::ostringstream oss;
+        oss << "{";
+        oss << "\"fault\": \"step\", ";
+        oss << "}";
+
+        auto msg = oss.str();
+        state->dbgStudioSimEnd(msg);
+    }
+
+    void AtlasCoSim::pcFailure(HartId hart, uint64_t imperas_pc, uint64_t atlas_pc)
+    {
+        auto state = getAtlasState(hart);
+
+        // {
+        //     "fault": "pc",
+        //     "imperas": <val>,
+        //     "atlas": <val>
+        // }
+
+        std::ostringstream oss;
+        oss << "{";
+        oss << "\"fault\": \"pc\", ";
+        oss << "\"imperas\": \"" << HEX16(imperas_pc) << "\", ";
+        oss << "\"atlas\": \"" << HEX16(atlas_pc) << "\"";
+        oss << "}";
+
+        auto msg = oss.str();
+        state->dbgStudioSimEnd(msg);
+    }
+
+    void AtlasCoSim::rdFailure(HartId hart, const std::string& reg_name, uint64_t imperas_reg, uint64_t atlas_reg)
+    {
+        auto state = getAtlasState(hart);
+
+        // {
+        //     "fault": "rd",
+        //     "reg_name": <name>,
+        //     "imperas": <val>,
+        //     "atlas": <val>
+        // }
+
+        std::ostringstream oss;
+        oss << "{";
+        oss << "\"fault\": \"rd\", ";
+        oss << "\"reg_name\": \"" << reg_name << "\", ";
+        oss << "\"imperas\": \"" << HEX16(imperas_reg) << "\", ";
+        oss << "\"atlas\": \"" << HEX16(atlas_reg) << "\"";
+        oss << "}";
+
+        auto msg = oss.str();
+        state->dbgStudioSimEnd(msg);
+    }
+
 } // namespace atlas

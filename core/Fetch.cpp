@@ -151,12 +151,6 @@ namespace atlas
 
     void Fetch::advanceSim_()
     {
-        const auto mstatus = state_->getMStatusInitialValue();
-        auto state = state_;
-        POKE_CSR_REG(MSTATUS, mstatus);
-
-        state_->dbgStudioDumpAllRegisters("RegDumpBeforeSim");
-
         // Run
         ActionGroup* next_action_group = &fetch_action_group_;
         while (next_action_group && (next_action_group->hasTag(ActionTags::STOP_SIM_TAG) == false))

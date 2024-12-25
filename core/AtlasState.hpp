@@ -64,7 +64,7 @@ namespace atlas
 
         void dbgStudioSimEnd(const std::string& msg)
         {
-            dbg_studio_logger_.dumpMetadata("sim_end", msg);
+            dbg_studio_logger_.simulationEnding(msg);
         }
 
         uint64_t getXlen() const { return xlen_; }
