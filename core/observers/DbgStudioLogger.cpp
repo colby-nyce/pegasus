@@ -34,17 +34,6 @@ namespace atlas
             return;
         }
 
-        // {
-        //   <key>: {
-        //     "hart": 0,
-        //     "x0": "0x00000000",
-        //     ...
-        //     "x31": "0x00000000",
-        //     "mstatus": "0x00000000",
-        //     ...
-        //   }
-        // }
-
         std::ostringstream json;
         json << "{";
         json << "\"" << key << "\": {";
@@ -62,14 +51,14 @@ namespace atlas
         };
 
         for (auto reg : int_regs) {
-            json << "\"" << to_lower(reg->getName()) << "\": \"0x" << std::hex << reg->dmiRead<uint64_t>() << "\"";
+            json << "\"" << to_lower(reg->getName()) << "\": " << reg->dmiRead<uint64_t>() << "\"";
             if (++idx < reg_count) {
                 json << ",";
             }
         }
 
         for (auto reg : csr_regs) {
-            json << "\"" << to_lower(reg->getName()) << "\": \"0x" << std::hex << reg->dmiRead<uint64_t>() << "\"";
+            json << "\"" << to_lower(reg->getName()) << "\": " << reg->dmiRead<uint64_t>() << "\"";
             if (++idx < reg_count) {
                 json << ",";
             }
@@ -127,26 +116,10 @@ namespace atlas
             dst_regs_[0].setValue(value);
         }
 
-        // Spike handler code; Atlas handler code; spike #defines;
-
-        // {
-        //   "hart": 0,
-        //   "pc": "0x00000000",
-        //   "opc": "0xefefefef",
-        //   "disasm": "add x7,8",
-        //   "rs1": "x7",
-        //   "rd":  "x7",
-        //   "imm": 8,
-        //   "rd_prev": "0x00000000",
-        //   "rd_now": "0x00000008",
-        //   "symbols": "0xdeabeef",
-        //   "priv": "M"
-        // }
-
         std::ostringstream json;
         json << "{";
         json << "\"hart\": \"" << state->getHartId() << "\",";
-        json << "\"pc\": \"0x" << std::hex << pc_ << "\",";
+        json << "\"pc\": " << pc_ << "\",";
         json << "\"opc\": \"" << HEX8(opcode_) << "\",";
         const auto & symbols = state->getAtlasSystem()->getSymbols();
         if (symbols.find(pc_) != symbols.end()) {
@@ -154,16 +127,16 @@ namespace atlas
         }
         if (src_regs_.size() > 0) {
             json << "\"rs1\": \"" << src_regs_[0].reg_id.reg_name << "\",";
-            json << "\"rs1_val\": \"0x" << std::hex << convertFromByteVector<uint64_t>(src_regs_[0].reg_value) << "\",";
+            json << "\"rs1_val\": " << convertFromByteVector<uint64_t>(src_regs_[0].reg_value) << "\",";
         }
         if (src_regs_.size() > 1) {
             json << "\"rs2\": \"" << src_regs_[1].reg_id.reg_name << "\",";
-            json << "\"rs2_val\": \"0x" << std::hex << convertFromByteVector<uint64_t>(src_regs_[1].reg_value) << "\",";
+            json << "\"rs2_val\": " << convertFromByteVector<uint64_t>(src_regs_[1].reg_value) << "\",";
         }
         if (dst_regs_.size() > 0) {
             json << "\"rd\": \"" << dst_regs_[0].reg_id.reg_name << "\",";
-            json << "\"rd_prev\": \"0x" << std::hex << convertFromByteVector<uint64_t>(dst_regs_[0].reg_prev_value) << "\",";
-            json << "\"rd_now\": \"0x" << std::hex << convertFromByteVector<uint64_t>(dst_regs_[0].reg_value) << "\",";
+            json << "\"rd_prev\": " << convertFromByteVector<uint64_t>(dst_regs_[0].reg_prev_value) << "\",";
+            json << "\"rd_now\": " << convertFromByteVector<uint64_t>(dst_regs_[0].reg_value) << "\",";
         }
         if (inst->hasImmediate()) {
             json << "\"imm\": \"" << inst->getImmediate() << "\",";

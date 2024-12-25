@@ -272,10 +272,6 @@ namespace atlas
     {
         auto state = getAtlasState(hart);
 
-        // {
-        //     "fault": "step"
-        // }
-
         std::ostringstream oss;
         oss << "{";
         oss << "\"fault\": \"step\", ";
@@ -289,17 +285,11 @@ namespace atlas
     {
         auto state = getAtlasState(hart);
 
-        // {
-        //     "fault": "pc",
-        //     "imperas": <val>,
-        //     "atlas": <val>
-        // }
-
         std::ostringstream oss;
         oss << "{";
         oss << "\"fault\": \"pc\", ";
-        oss << "\"imperas\": \"0x" << std::hex << imperas_pc << "\", ";
-        oss << "\"atlas\": \"0x" << std::hex << atlas_pc << "\"";
+        oss << "\"imperas\": " << imperas_pc << "\", ";
+        oss << "\"atlas\": " << atlas_pc << "\"";
         oss << "}";
 
         auto msg = oss.str();
@@ -310,19 +300,12 @@ namespace atlas
     {
         auto state = getAtlasState(hart);
 
-        // {
-        //     "fault": "rd",
-        //     "reg_name": <name>,
-        //     "imperas": <val>,
-        //     "atlas": <val>
-        // }
-
         std::ostringstream oss;
         oss << "{";
         oss << "\"fault\": \"rd\", ";
         oss << "\"reg_name\": \"" << reg_name << "\", ";
-        oss << "\"imperas\": \"0x" << std::hex << imperas_reg << "\", ";
-        oss << "\"atlas\": \"0x" << std::hex << atlas_reg << "\"";
+        oss << "\"imperas\": " << imperas_reg << "\", ";
+        oss << "\"atlas\": " << atlas_reg << "\"";
         oss << "}";
 
         auto msg = oss.str();
