@@ -41,27 +41,7 @@ namespace atlas
             *dbg_studio_json_fout_ << json.str() << "\n";
         }
 
-        void simulationEnding(const std::string& msg)
-        {
-            if (!enabled_) {
-                return;
-            }
-
-            // {
-            //     "SIM_END": <msg>
-            // }
-
-            std::ostringstream oss;
-            oss << "{";
-            oss << "\"SIM_END\": \"" << msg << "\"";
-            oss << "}";
-
-            auto json = oss.str();
-            *dbg_studio_json_fout_ << json << "\n";
-
-            dbg_studio_json_fout_.reset();
-            enabled_ = false;
-        }
+        void simulationEnding(const std::string& msg);
 
       private:
         ActionGroup* preExecute_(AtlasState* state);

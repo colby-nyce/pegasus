@@ -312,4 +312,10 @@ namespace atlas
         state->dbgStudioSimEnd(msg);
     }
 
+    void AtlasCoSim::success(HartId hart)
+    {
+        auto state = getAtlasState(hart);
+        state->dbgStudioSimEnd("SUCCESS");
+    }
+
 } // namespace atlas

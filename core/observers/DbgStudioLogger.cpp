@@ -38,6 +38,7 @@ namespace atlas
         json << "{";
         json << "\"" << key << "\": {";
         json << "\"hart\": \"" << state_->getHartId() << "\",";
+        json << "\"pc\": \"0x" << std::hex << state_->getPc() << "\",";
 
         auto int_regs = state_->getIntRegisters();
         auto csr_regs = state_->getCsrRegisters();
@@ -66,6 +67,24 @@ namespace atlas
 
         json << "}}";
         *dbg_studio_json_fout_ << json.str() << "\n";
+    }
+
+    void DbgStudioLogger::simulationEnding(const std::string& msg)
+    {
+        if (!enabled_) {
+            return;
+        }
+
+        std::ostringstream oss;
+        oss << "{";
+        oss << "\"SIM_END\": {\"hart\": " << state_->getHartId() << ",";
+        oss << "\"msg\": \"" << msg << "\"}}";
+
+        auto json = oss.str();
+        *dbg_studio_json_fout_ << json << "\n";
+
+        dbg_studio_json_fout_.reset();
+        enabled_ = false;
     }
 
     ActionGroup* DbgStudioLogger::preExecute_(AtlasState* state)

@@ -82,6 +82,7 @@ namespace atlas
         void stepFailure(HartId hart);
         void pcFailure(HartId hart, uint64_t imperas_pc, uint64_t atlas_pc);
         void rdFailure(HartId hart, const std::string& reg_name, uint64_t imperas_reg, uint64_t atlas_reg);
+        void success(HartId hart);
 
       private:
         void bindTree_() override;
