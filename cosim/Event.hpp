@@ -20,6 +20,7 @@ namespace pegasus::cosim
 {
     class CoSimEventPipeline;
     class CoSimObserver;
+    class CoSimEventReplayer;
 
     /*!
      * \class Event
@@ -440,6 +441,7 @@ namespace pegasus::cosim
         friend class CoSimObserver;
         friend class CoSimEventPipeline;
         friend class EventCompressorStage;
+        friend class CoSimEventReplayer;
     };
 
     inline std::ostream & operator<<(std::ostream & os, const Event::Type & type)

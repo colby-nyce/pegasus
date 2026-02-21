@@ -1,4 +1,5 @@
 #include "cosim/PegasusCoSim.hpp"
+#include "cosim/CoSimEventReplayer.hpp"
 #include "sim/PegasusSim.hpp"
 #include "cosim/CoSimEventPipeline.hpp"
 #include "core/observers/InstructionLogger.hpp"
@@ -18,9 +19,11 @@
 using pegasus::CoreId;
 using pegasus::HartId;
 using pegasus::PegasusSim;
+using pegasus::PegasusState;
 using pegasus::RegisterSet;
 using pegasus::cosim::EventAccessor;
 using pegasus::cosim::PegasusCoSim;
+using pegasus::cosim::CoSimEventReplayer;
 
 std::string GetArchFromPath(const std::string & path)
 {
@@ -65,6 +68,11 @@ bool StepSim(PegasusCoSim & sim, CoreId core_id, HartId hart_id)
     auto event = sim.step(core_id, hart_id);
     sim.commit(event);
     return true;
+}
+
+bool StepSim(CoSimEventReplayer & sim, CoreId core_id, HartId hart_id)
+{
+    return sim.step(core_id, hart_id);
 }
 
 bool StepSimWithFlush(PegasusCoSim & sim, CoreId core_id, HartId hart_id,
@@ -122,12 +130,8 @@ bool StepSimWithFlush(PegasusCoSim & sim, CoreId core_id, HartId hart_id,
     return true;
 }
 
-template <typename XLEN>
-bool Compare(PegasusSim & sim_truth, PegasusCoSim & sim_test, CoreId core_id, HartId hart_id)
+template <typename XLEN> bool Compare(PegasusState* state_truth, PegasusState* state_test)
 {
-    auto state_truth = sim_truth.getPegasusCore(core_id)->getPegasusState(hart_id);
-    auto state_test = sim_test.getPegasusSim().getPegasusCore(core_id)->getPegasusState(hart_id);
-
     // Compare PegasusState
     state_truth->compare<true>(state_test);
 
@@ -229,7 +233,28 @@ bool AdvanceAndCompare(PegasusSim & sim_truth, PegasusCoSim & sim_test, CoreId c
     EXPECT_EQUAL(stepped_truth, stepped_test);
     if (stepped_truth && stepped_test)
     {
-        return Compare<XLEN>(sim_truth, sim_test, core_id, hart_id);
+        auto state_truth = sim_truth.getPegasusCore(core_id)->getPegasusState(hart_id);
+        auto state_test =
+            sim_test.getPegasusSim().getPegasusCore(core_id)->getPegasusState(hart_id);
+        return Compare<XLEN>(state_truth, state_test);
+    }
+    return false;
+}
+
+template <typename XLEN>
+bool AdvanceAndCompareReplayer(PegasusSim & sim_truth, CoSimEventReplayer & sim_test,
+                               CoreId core_id, HartId hart_id)
+{
+    auto stepped_truth = StepSim(sim_truth, core_id, hart_id);
+    auto stepped_test = StepSim(sim_test, core_id, hart_id);
+
+    EXPECT_EQUAL(stepped_truth, stepped_test);
+    if (stepped_truth && stepped_test)
+    {
+        auto state_truth = sim_truth.getPegasusCore(core_id)->getPegasusState(hart_id);
+        auto state_test =
+            sim_test.getPegasusSim().getPegasusCore(core_id)->getPegasusState(hart_id);
+        return Compare<XLEN>(state_truth, state_test);
     }
     return false;
 }
@@ -248,7 +273,20 @@ bool AdvanceAndCompare(PegasusSim & sim_truth, PegasusCoSim & sim_test, CoreId c
 //   --> '--max-steps-before-flush' controls how many steps to take (N) before flushing (N-1)
 //   --> '--fast-forward-steps' says how many steps to take before starting flush comparisons
 //   --> '--db-stem' specifies the database stem name
-std::tuple<std::string, uint64_t, std::string, size_t, size_t>
+//
+// The typical harness configuration uses:
+//   - PegasusSim as the truth
+//   - PegasusCoSim as the sim under test, which produces a database file
+//
+// If you want to rerun all passing cosim runs using the database as the source of truth, add this:
+//   ./FlushWorkload_test <all other args> --test-db-as-truth
+//
+// With the --test-db-as-truth option, if the original PegasusSim / PegasusCoSim test passed, then
+// rerun the harness using this configuration:
+//   - CoSimEventReplayer as the truth, using the database from the prior run
+//   - PegasusCoSim as the sim under test
+//
+std::tuple<std::string, uint64_t, std::string, size_t, size_t, bool>
 ParseArgs(int argc, char** argv, std::map<std::string, std::string> & sim_params)
 {
     if (argc == 1)
@@ -261,6 +299,7 @@ ParseArgs(int argc, char** argv, std::map<std::string, std::string> & sim_params
     std::string db_stem;
     size_t max_steps_before_flush = 3;
     size_t fast_forward_steps = 0;
+    bool test_db_as_truth = false;
 
     pegasus::PegasusSimParameters::RegisterOverrides reg_overrides;
 
@@ -320,6 +359,12 @@ ParseArgs(int argc, char** argv, std::map<std::string, std::string> & sim_params
             i += 2;
             continue;
         }
+        else if (arg == "--test-db-as-truth")
+        {
+            test_db_as_truth = true;
+            i += 1;
+            continue;
+        }
         else
         {
             throw std::invalid_argument("Unknown argument: " + arg);
@@ -337,14 +382,15 @@ ParseArgs(int argc, char** argv, std::map<std::string, std::string> & sim_params
             pegasus::PegasusSimParameters::convertVectorToStringParam(reg_overrides);
     }
 
-    return {workload, ilimit, db_stem, max_steps_before_flush, fast_forward_steps};
+    return {workload,           ilimit,          db_stem, max_steps_before_flush,
+            fast_forward_steps, test_db_as_truth};
 }
 
 int main(int argc, char** argv)
 {
     std::map<std::string, std::string> sim_params;
-    const auto [workload, ilimit, db_stem, max_steps_before_flush, fast_forward_steps] =
-        ParseArgs(argc, argv, sim_params);
+    const auto [workload, ilimit, db_stem, max_steps_before_flush, fast_forward_steps,
+                test_db_as_truth] = ParseArgs(argc, argv, sim_params);
     const auto arch = GetArchFromPath(workload);
 
     // Disable sleeper thread so we can run two simulations at once.
@@ -358,25 +404,31 @@ int main(int argc, char** argv)
 
     const size_t snapshot_threshold = 10;
 
-    sparta::app::SimulationConfiguration config_truth;
-
-    for (auto & [param_name, param_value] : sim_params)
+    auto initSimConfig = [&]() -> sparta::app::SimulationConfiguration*
     {
-        config_truth.processParameter(param_name, param_value, false);
-    }
+        static std::unique_ptr<sparta::app::SimulationConfiguration> config_truth;
+        config_truth.reset(new sparta::app::SimulationConfiguration);
 
-    config_truth.enableLogging("top", "inst", workload_fname + ".log");
-    pegasus::PegasusSimParameters::WorkloadsAndArgs workloads_and_args{{workload}};
-    const std::string wkld_param =
-        pegasus::PegasusSimParameters::convertVectorToStringParam(workloads_and_args);
-    config_truth.processParameter("top.extension.sim.workloads", wkld_param);
-    config_truth.processParameter("top.extension.sim.inst_limit", std::to_string(ilimit));
-    config_truth.copyTreeNodeExtensionsFromArchAndConfigPTrees();
+        for (auto & [param_name, param_value] : sim_params)
+        {
+            config_truth->processParameter(param_name, param_value, false);
+        }
+
+        config_truth->enableLogging("top", "inst", workload_fname + ".log");
+        pegasus::PegasusSimParameters::WorkloadsAndArgs workloads_and_args{{workload}};
+        const std::string wkld_param =
+            pegasus::PegasusSimParameters::convertVectorToStringParam(workloads_and_args);
+        config_truth->processParameter("top.extension.sim.workloads", wkld_param);
+        config_truth->processParameter("top.extension.sim.inst_limit", std::to_string(ilimit));
+        config_truth->copyTreeNodeExtensionsFromArchAndConfigPTrees();
+
+        return config_truth.get();
+    };
 
     sparta::Scheduler scheduler_truth;
     PegasusSim cosim_truth(&scheduler_truth);
 
-    cosim_truth.configure(0, nullptr, &config_truth);
+    cosim_truth.configure(0, nullptr, initSimConfig());
     cosim_truth.buildTree();
     cosim_truth.configureTree();
     cosim_truth.finalizeTree();
@@ -436,9 +488,9 @@ int main(int argc, char** argv)
     cosim_test.finish();
 
     // Final validation
-    auto validate_final_state = [&](PegasusSim & cosim_truth, PegasusCoSim & cosim_test)
+    auto validate_final_state = [&](PegasusSim & sim_truth, const auto & sim_test)
     {
-        auto state_truth = cosim_truth.getPegasusCore(core_id)->getPegasusState(hart_id);
+        auto state_truth = sim_truth.getPegasusCore(core_id)->getPegasusState(hart_id);
         auto sim_state_truth = state_truth->getSimState();
         auto workload_exit_code_truth = sim_state_truth->workload_exit_code;
         auto test_passed_truth = sim_state_truth->test_passed;
@@ -446,7 +498,7 @@ int main(int argc, char** argv)
         auto inst_count_truth = sim_state_truth->inst_count;
 
         auto state_test =
-            cosim_test.getPegasusSim().getPegasusCore(core_id)->getPegasusState(hart_id);
+            sim_test.getPegasusSim().getPegasusCore(core_id)->getPegasusState(hart_id);
         auto sim_state_test = state_test->getSimState();
         auto workload_exit_code_test = sim_state_test->workload_exit_code;
         auto test_passed_test = sim_state_test->test_passed;
@@ -461,6 +513,74 @@ int main(int argc, char** argv)
 
     validate_final_state(cosim_truth, cosim_test);
     EXPECT_EQUAL(exception_str, "");
+
+    if (test_db_as_truth)
+    {
+        if (ERROR_CODE)
+        {
+            std::cerr << "Cannot run with --test-db-as-truth. CoSim test failed, so we cannot "
+                      << "assume the database is any good." << std::endl;
+        }
+
+        sparta::Scheduler replayer_scheduler_truth;
+        PegasusSim replayer_truth(&replayer_scheduler_truth);
+
+        replayer_truth.configure(0, nullptr, initSimConfig());
+        replayer_truth.buildTree();
+        replayer_truth.configureTree();
+        replayer_truth.finalizeTree();
+        replayer_truth.finalizeFramework();
+
+        // Assume 1 core, 1 hart for now
+        const pegasus::CoreId num_cores = 1;
+        const pegasus::HartId num_harts = 1;
+        for (pegasus::CoreId core_id = 0; core_id < num_cores; ++core_id)
+        {
+            for (pegasus::HartId hart_id = 0; hart_id < num_harts; ++hart_id)
+            {
+                auto state = replayer_truth.getPegasusCore(core_id)->getPegasusState(hart_id);
+                state->boot();
+            }
+        }
+
+        CoSimEventReplayer replayer_test(db_test, arch);
+
+        exception_str.clear();
+        step_count = 0;
+
+        auto advance_and_compare_replayer = (arch == "rv32") ? AdvanceAndCompareReplayer<uint32_t>
+                                                             : AdvanceAndCompareReplayer<uint64_t>;
+
+        std::cout << "Running CoSim event replayer..." << std::endl;
+        try
+        {
+            while (true)
+            {
+                ++step_count;
+                if (!advance_and_compare_replayer(replayer_truth, replayer_test, core_id, hart_id))
+                {
+                    if (ERROR_CODE)
+                    {
+                        std::cout << "Mismatch detected at step " << std::dec << step_count
+                                  << std::endl;
+                        std::cout << "Last cosim Event: "
+                                  << replayer_test.getLastEvent(core_id, hart_id) << std::endl;
+                    }
+                    break;
+                }
+            }
+            std::cout << "Completed " << std::dec << step_count << " steps." << std::endl;
+        }
+        catch (const std::exception & ex)
+        {
+            exception_str = ex.what();
+            std::cout << "Exception caught on step " << step_count << ": " << exception_str
+                      << std::endl;
+        }
+
+        validate_final_state(replayer_truth, replayer_test);
+        EXPECT_EQUAL(exception_str, "");
+    }
 
     REPORT_ERROR;
     return ERROR_CODE;
