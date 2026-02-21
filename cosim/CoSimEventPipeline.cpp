@@ -80,6 +80,12 @@ namespace pegasus::cosim
         tbl.createCompoundIndexOn(
             {"StartEuid", "EndEuid", "StartArchId", "EndArchId", "CoreId", "HartId"});
         tbl.unsetPrimaryKey();
+
+        // Support for CoSimEventReplayer. Contains the union of the
+        // sim config's ptree_ (config) and extensions_ptree_ (extensions).
+        auto & ptree_values_tbl = schema.addTable("ParameterTree");
+        ptree_values_tbl.addColumn("PTreePath", dt::string_t);
+        ptree_values_tbl.addColumn("ValueString", dt::string_t);
     }
 
     class EventCompressorStage : public simdb::pipeline::Stage
@@ -370,8 +376,6 @@ namespace pegasus::cosim
         return pipeline_mgr_;
     }
 
-    void CoSimEventPipeline::setListener(EventListener* listener) { listener_ = listener; }
-
     void CoSimEventPipeline::onStep(Event && evt)
     {
         sparta_assert(core_id_ == evt.getCoreId() && hart_id_ == evt.getHartId(),
@@ -379,11 +383,6 @@ namespace pegasus::cosim
 
         uncommitted_evts_buffer_.emplace_back(std::move(evt));
         last_event_uid_ = uncommitted_evts_buffer_.back().getEuid();
-
-        if (listener_)
-        {
-            listener_->onNewEvent(getLastEvent());
-        }
     }
 
     void CoSimEventPipeline::commitOldest()
@@ -841,6 +840,14 @@ namespace pegasus::cosim
 
     std::unique_ptr<Event> CoSimEventPipeline::recreateEventFromDisk_(uint64_t euid)
     {
+        return recreateEventFromDisk_(euid, db_mgr_, core_id_, hart_id_, pipeline_mgr_,
+                                      &avg_us_recreating_evts_from_disk_);
+    }
+
+    std::unique_ptr<Event> CoSimEventPipeline::recreateEventFromDisk_(
+        uint64_t euid, simdb::DatabaseManager* db_mgr, CoreId core_id, HartId hart_id,
+        simdb::pipeline::PipelineManager* pipeline_mgr, simdb::RunningMean* runtime)
+    {
         std::vector<char> compressed_evts_bytes;
 
         auto query_func = [&](simdb::DatabaseManager* db_mgr)
@@ -848,8 +855,8 @@ namespace pegasus::cosim
             auto query = db_mgr->createQuery("CompressedEvents");
             query->addConstraintForUInt64("StartEuid", simdb::Constraints::LESS_EQUAL, euid);
             query->addConstraintForUInt64("EndEuid", simdb::Constraints::GREATER_EQUAL, euid);
-            query->addConstraintForInt("CoreId", simdb::Constraints::EQUAL, (int)core_id_);
-            query->addConstraintForInt("HartId", simdb::Constraints::EQUAL, (int)hart_id_);
+            query->addConstraintForInt("CoreId", simdb::Constraints::EQUAL, (int)core_id);
+            query->addConstraintForInt("HartId", simdb::Constraints::EQUAL, (int)hart_id);
             query->select("ZlibBlob", compressed_evts_bytes);
 
             auto result_set = query->getResultSet();
@@ -862,8 +869,19 @@ namespace pegasus::cosim
         // Run the query on the database thread. It will stop what it is doing
         // as quickly as possible to run this query. The eval() method blocks
         // until the query is picked up and run.
-        auto db_accessor = pipeline_mgr_->getAsyncDatabaseAccessor();
-        db_accessor->eval(query_func);
+        //
+        // Note that the pipeline manager will be null when the event pipeline
+        // is used for the cosim event replayer. In that case, we don't even
+        // have a pipeline.
+        if (pipeline_mgr)
+        {
+            auto db_accessor = pipeline_mgr->getAsyncDatabaseAccessor();
+            db_accessor->eval(query_func);
+        }
+        else
+        {
+            query_func(db_mgr);
+        }
 
         if (compressed_evts_bytes.empty())
         {
@@ -894,14 +912,18 @@ namespace pegasus::cosim
                 auto us = std::chrono::duration_cast<std::chrono::microseconds>(dur).count();
 
                 // Add to the running mean
-                avg_us_recreating_evts_from_disk_.add(us);
+                if (runtime)
+                {
+                    runtime->add(us);
+                }
 
                 return std::make_unique<Event>(evt);
             }
         }
 
         throw simdb::DBException("Internal error occurred. Cannot find event with uid ")
-            << euid << ".";
+            << euid << ". Core " << core_id << ", hart " << hart_id << ", database '"
+            << db_mgr->getDatabaseFilePath() << "'.";
     }
 
     const Event* EventAccessor::operator->() { return get(); }

@@ -549,11 +549,41 @@ namespace pegasus::cosim
         }
     }
 
-    std::vector<std::string> PegasusCoSim::getWorkloadArgs_(const std::string & workload)
+    void PegasusCoSim::onFrameworkFinalized()
     {
-        std::vector<std::string> workload_args;
-        sparta::utils::tokenize_on_whitespace(workload, workload_args);
-        return workload_args;
+        // In order to support the CoSimEventReplayer, we need to write to the
+        // database all the stuff it will need to configure the replayer:
+        //   - final simulation config, e.g. from processParameter() calls
+        //   - num harts per core
+        //   - all extensions
+
+        auto & db_mgr = *app_mgr_->getDatabaseManager();
+        db_mgr.safeTransaction(
+            [&]()
+            {
+                // Prepared inserter for performance
+                auto ptree_inserter = db_mgr.prepareINSERT(SQL_TABLE("ParameterTree"),
+                                                           SQL_COLUMNS("PTreePath", "ValueString"));
+
+                // Final simulation config
+                auto sim_config = pegasus_sim_->getSimulationConfiguration();
+                const auto & cfg_ptree = sim_config->getUnboundParameterTree();
+                const auto & ext_ptree = sim_config->getExtensionsUnboundParameterTree();
+
+                sparta::ParameterTree merged_ptree;
+                merged_ptree.merge(cfg_ptree);
+                merged_ptree.merge(ext_ptree);
+
+                merged_ptree.visitLeaves(
+                    [&](const sparta::ParameterTree::Node* node)
+                    {
+                        const std::string path = node->getPath();
+                        const std::string value = node->peekValue();
+                        ptree_inserter->setColumnValue(0, path);
+                        ptree_inserter->setColumnValue(1, value);
+                        ptree_inserter->createRecord();
+                    });
+            });
     }
 
     void PegasusCoSim::finish()
