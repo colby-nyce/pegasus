@@ -2,12 +2,12 @@
 
 #include "include/PegasusTypes.hpp"
 #include "sparta/utils/ValidValue.hpp"
+#include "sparta/serialization/checkpoint/CherryPickFastCheckpointer.hpp"
 #include <map>
 #include <vector>
 
 namespace sparta
 {
-    class ArchData;
     class Scheduler;
 
     namespace app
@@ -47,17 +47,20 @@ namespace pegasus::cosim
         const Event* getLastEvent(CoreId core_id, HartId hart_id) const;
 
       private:
-        void cacheArchDatas_(CoreId core_id, HartId hart_id);
+        std::unique_ptr<Event> recreateEventFromDisk_(uint64_t arch_id, CoreId core_id, HartId hart_id);
+
+        using CheckpointReplayer = sparta::serialization::checkpoint::CherryPickFastCheckpointer::DatabaseCheckpointReplayer;
 
         template <typename XLEN>
-        static void apply_(const Event & reload_evt, PegasusState* state, std::vector<sparta::ArchData*>&);
+        static void apply_(const Event & reload_evt, PegasusState* state, CheckpointReplayer & replayer);
 
         std::shared_ptr<simdb::DatabaseManager> db_mgr_;
         std::shared_ptr<sparta::Scheduler> scheduler_;
         std::shared_ptr<pegasus::PegasusSim> pegasus_sim_;
         std::shared_ptr<sparta::app::SimulationConfiguration> sim_config_;
-        std::map<CoreId, std::map<HartId, std::vector<sparta::ArchData*>>> adatas_;
-        uint64_t next_euid_ = 1;
+        std::vector<std::vector<std::shared_ptr<CheckpointReplayer>>> checkpoint_replayers_;
+
+        uint64_t next_arch_id_ = 1;
         uint64_t num_events_on_disk_ = 0;
         size_t reg_width_ = 0;
     };

@@ -81,11 +81,16 @@ namespace pegasus::cosim
             {"StartEuid", "EndEuid", "StartArchId", "EndArchId", "CoreId", "HartId"});
         tbl.unsetPrimaryKey();
 
-        // Support for CoSimEventReplayer. Contains the union of the
-        // sim config's ptree_ (config) and extensions_ptree_ (extensions).
-        auto & ptree_values_tbl = schema.addTable("ParameterTree");
-        ptree_values_tbl.addColumn("PTreePath", dt::string_t);
-        ptree_values_tbl.addColumn("ValueString", dt::string_t);
+        // Support for CoSimEventReplayer.
+        auto add_ptree_table = [&](const std::string & table_name)
+        {
+            auto & ptree_values_tbl = schema.addTable(table_name);
+            ptree_values_tbl.addColumn("PTreePath", dt::string_t);
+            ptree_values_tbl.addColumn("PTreeValue", dt::string_t);
+        };
+
+        add_ptree_table("ArchParameterTree");
+        add_ptree_table("ConfigParameterTree");
     }
 
     class EventCompressorStage : public simdb::pipeline::Stage
@@ -176,6 +181,8 @@ namespace pegasus::cosim
                 for (auto & evt : evts)
                 {
                     evt.arch_id_ = arch_id_++;
+                    std::cout << "Processing event with EUID " << evt.getEuid() << " and assigned Arch ID " << evt.getArchId() << "\n";
+                    std::cout << "  current_uid: " << evt.getSimStateCurrentUID() << std::endl;
                 }
 
                 auto start_euid = UINT64_MAX;
@@ -840,14 +847,6 @@ namespace pegasus::cosim
 
     std::unique_ptr<Event> CoSimEventPipeline::recreateEventFromDisk_(uint64_t euid)
     {
-        return recreateEventFromDisk_(euid, db_mgr_, core_id_, hart_id_, pipeline_mgr_,
-                                      &avg_us_recreating_evts_from_disk_);
-    }
-
-    std::unique_ptr<Event> CoSimEventPipeline::recreateEventFromDisk_(
-        uint64_t euid, simdb::DatabaseManager* db_mgr, CoreId core_id, HartId hart_id,
-        simdb::pipeline::PipelineManager* pipeline_mgr, simdb::RunningMean* runtime)
-    {
         std::vector<char> compressed_evts_bytes;
 
         auto query_func = [&](simdb::DatabaseManager* db_mgr)
@@ -855,8 +854,8 @@ namespace pegasus::cosim
             auto query = db_mgr->createQuery("CompressedEvents");
             query->addConstraintForUInt64("StartEuid", simdb::Constraints::LESS_EQUAL, euid);
             query->addConstraintForUInt64("EndEuid", simdb::Constraints::GREATER_EQUAL, euid);
-            query->addConstraintForInt("CoreId", simdb::Constraints::EQUAL, (int)core_id);
-            query->addConstraintForInt("HartId", simdb::Constraints::EQUAL, (int)hart_id);
+            query->addConstraintForInt("CoreId", simdb::Constraints::EQUAL, (int)core_id_);
+            query->addConstraintForInt("HartId", simdb::Constraints::EQUAL, (int)hart_id_);
             query->select("ZlibBlob", compressed_evts_bytes);
 
             auto result_set = query->getResultSet();
@@ -869,19 +868,8 @@ namespace pegasus::cosim
         // Run the query on the database thread. It will stop what it is doing
         // as quickly as possible to run this query. The eval() method blocks
         // until the query is picked up and run.
-        //
-        // Note that the pipeline manager will be null when the event pipeline
-        // is used for the cosim event replayer. In that case, we don't even
-        // have a pipeline.
-        if (pipeline_mgr)
-        {
-            auto db_accessor = pipeline_mgr->getAsyncDatabaseAccessor();
-            db_accessor->eval(query_func);
-        }
-        else
-        {
-            query_func(db_mgr);
-        }
+        auto db_accessor = pipeline_mgr_->getAsyncDatabaseAccessor();
+        db_accessor->eval(query_func);
 
         if (compressed_evts_bytes.empty())
         {
@@ -912,18 +900,15 @@ namespace pegasus::cosim
                 auto us = std::chrono::duration_cast<std::chrono::microseconds>(dur).count();
 
                 // Add to the running mean
-                if (runtime)
-                {
-                    runtime->add(us);
-                }
+                avg_us_recreating_evts_from_disk_.add(us);
 
                 return std::make_unique<Event>(evt);
             }
         }
 
         throw simdb::DBException("Internal error occurred. Cannot find event with uid ")
-            << euid << ". Core " << core_id << ", hart " << hart_id << ", database '"
-            << db_mgr->getDatabaseFilePath() << "'.";
+            << euid << ". Core " << core_id_ << ", hart " << hart_id_ << ", database '"
+            << db_mgr_->getDatabaseFilePath() << "'.";
     }
 
     const Event* EventAccessor::operator->() { return get(); }

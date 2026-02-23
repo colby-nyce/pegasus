@@ -401,6 +401,7 @@ namespace pegasus::cosim
         template <typename Archive> void serialize(Archive & ar, const unsigned int /*version*/)
         {
             ar & event_uid_;
+            ar & sim_state_current_uid_;
             ar & type_;
             ar & core_id_;
             ar & hart_id_;

@@ -6,7 +6,16 @@
 #include "core/PegasusState.hpp"
 #include "sparta/app/SimulationConfiguration.hpp"
 #include "simdb/sqlite/DatabaseManager.hpp"
+#include "simdb/utils/Compress.hpp"
 #include "source/include/softfloat.h"
+
+#include <boost/archive/binary_oarchive.hpp>
+#include <boost/archive/binary_iarchive.hpp>
+#include <boost/serialization/deque.hpp>
+#include <boost/serialization/vector.hpp>
+#include <boost/serialization/utility.hpp>
+#include <boost/iostreams/device/back_inserter.hpp>
+#include <boost/iostreams/stream.hpp>
 
 namespace pegasus::cosim
 {
@@ -44,18 +53,24 @@ namespace pegasus::cosim
 
         // Recreate the final ParameterTree config
         sim_config_.reset(new sparta::app::SimulationConfiguration);
-        auto ptree_query = db_mgr_->createQuery("ParameterTree");
 
-        std::string ptree_path, ptree_value;
-        ptree_query->select("PTreePath", ptree_path);
-        ptree_query->select("ValueString", ptree_value);
-
-        auto ptree_results = ptree_query->getResultSet();
-        while (ptree_results.getNextRecord())
+        auto apply_db_ptree = [&](const char* table_name, sparta::ParameterTree & ptree)
         {
-            sim_config_->processParameter(ptree_path, ptree_value);
-        }
+            auto ptree_query = db_mgr_->createQuery(table_name);
 
+            std::string ptree_path, ptree_value;
+            ptree_query->select("PTreePath", ptree_path);
+            ptree_query->select("PTreeValue", ptree_value);
+
+            auto ptree_results = ptree_query->getResultSet();
+            while (ptree_results.getNextRecord())
+            {
+                ptree.set(ptree_path, ptree_value, false /*unrequired*/);
+            }
+        };
+
+        apply_db_ptree("ArchParameterTree", sim_config_->getArchUnboundParameterTree());
+        apply_db_ptree("ConfigParameterTree", sim_config_->getUnboundParameterTree());
         sim_config_->copyTreeNodeExtensionsFromArchAndConfigPTrees();
 
         // Configure PegasusSim
@@ -64,6 +79,36 @@ namespace pegasus::cosim
         pegasus_sim_->configureTree();
         pegasus_sim_->finalizeTree();
         pegasus_sim_->finalizeFramework();
+
+        // Cache replayers
+        std::vector<sparta::TreeNode*> core_tns;
+        pegasus_sim_->getRoot()->findChildren("core*", core_tns);
+        checkpoint_replayers_.resize(core_tns.size());
+        for (CoreId core_id = 0; core_id < core_tns.size(); ++core_id)
+        {
+            auto core = core_tns[core_id]->getResourceAs<pegasus::PegasusCore*>();
+            checkpoint_replayers_.at(core_id).resize(core->getNumThreads());
+            for (HartId hart_id = 0; hart_id < core->getNumThreads(); ++hart_id)
+            {
+                auto state = core->getPegasusState(hart_id);
+                std::vector<sparta::TreeNode*> chkptr_arch_data_roots;
+                chkptr_arch_data_roots.push_back(state->getContainer());
+                chkptr_arch_data_roots.push_back(core->getSystem()->getContainer());
+
+                auto replayer = std::make_shared<CheckpointReplayer>(db_mgr_.get(), chkptr_arch_data_roots);
+                checkpoint_replayers_.at(core_id).at(hart_id) = replayer;
+            }
+        }
+
+        // Boot
+        for (CoreId core_id = 0; core_id < checkpoint_replayers_.size(); ++core_id)
+        {
+            for (HartId hart_id = 0; hart_id < checkpoint_replayers_.at(core_id).size(); ++hart_id)
+            {
+                auto state = pegasus_sim_->getPegasusCore(core_id)->getPegasusState(hart_id);
+                state->boot();
+            }
+        }
     }
 
     const PegasusSim & CoSimEventReplayer::getPegasusSim() const { return *pegasus_sim_; }
@@ -72,28 +117,21 @@ namespace pegasus::cosim
 
     bool CoSimEventReplayer::step(CoreId core_id, HartId hart_id)
     {
-        if (next_euid_ == num_events_on_disk_)
+        if (next_arch_id_ == num_events_on_disk_)
         {
             return false;
         }
 
         auto state = pegasus_sim_->getPegasusCore(core_id)->getPegasusState(hart_id);
-        (void)state;
-
-        auto event = CoSimEventPipeline::recreateEventFromDisk_(next_euid_++, db_mgr_.get(),
-                                                                core_id, hart_id);
-
-        cacheArchDatas_(core_id, hart_id);
-        auto& adatas = adatas_[core_id][hart_id];
-        sparta_assert(!adatas.empty());
-
+        auto event = recreateEventFromDisk_(next_arch_id_++, core_id, hart_id);
+        auto replayer = checkpoint_replayers_.at(core_id).at(hart_id);
         if (reg_width_ == 8)
         {
-            apply_<uint32_t>(*event, state, adatas);
+            apply_<uint32_t>(*event, state, *replayer);
         }
         else
         {
-            apply_<uint64_t>(*event, state, adatas);
+            apply_<uint64_t>(*event, state, *replayer);
         }
 
         return true;
@@ -107,58 +145,60 @@ namespace pegasus::cosim
         return nullptr;
     }
 
-    void CoSimEventReplayer::cacheArchDatas_(CoreId core_id, HartId hart_id)
+    std::unique_ptr<Event> CoSimEventReplayer::recreateEventFromDisk_(
+        uint64_t arch_id, CoreId core_id, HartId hart_id)
     {
-        auto& adatas = adatas_[core_id][hart_id];
-        if (!adatas.empty())
+        std::vector<char> compressed_evts_bytes;
+
+        auto query = db_mgr_->createQuery("CompressedEvents");
+        query->addConstraintForUInt64("StartArchId", simdb::Constraints::LESS_EQUAL, arch_id);
+        query->addConstraintForUInt64("EndArchId", simdb::Constraints::GREATER_EQUAL, arch_id);
+        query->addConstraintForInt("CoreId", simdb::Constraints::EQUAL, (int)core_id);
+        query->addConstraintForInt("HartId", simdb::Constraints::EQUAL, (int)hart_id);
+        query->select("ZlibBlob", compressed_evts_bytes);
+
+        auto result_set = query->getResultSet();
+        result_set.getNextRecord();
+
+        if (compressed_evts_bytes.empty())
         {
-            return;
+            return nullptr;
         }
 
-        std::map<sparta::ArchData*, sparta::TreeNode*> adatas_helper;
-        std::function<void(sparta::TreeNode* n)> recurseFindArchDatas;
-        recurseFindArchDatas = [&recurseFindArchDatas, &adatas, &adatas_helper](sparta::TreeNode* n)
+        // "Undo" the pipeline transforms. Start by undoing zlib.
+        std::vector<char> uncompressed_evts_bytes;
+        simdb::decompressData(compressed_evts_bytes, uncompressed_evts_bytes);
+
+        // Now undo boost::serialization
+        namespace bio = boost::iostreams;
+        bio::array_source src(uncompressed_evts_bytes.data(), uncompressed_evts_bytes.size());
+        bio::stream<bio::array_source> is(src);
+        boost::archive::binary_iarchive ia(is);
+
+        EventList evts;
+        ia >> evts;
+
+        // If we got this far, the event uid must be within the returned list
+        for (const auto & evt : evts)
         {
-            assert(n);
-            auto assoc_adatas = n->getAssociatedArchDatas();
-            for (sparta::ArchData* ad : assoc_adatas) {
-                if (ad != nullptr) {
-                    auto itr = adatas_helper.find(ad);
-                    if (itr != adatas_helper.end()) {
-                        throw sparta::SpartaException("Found a second reference to ArchData ")
-                            << ad << " in the cosim event replayer . First reference found through "
-                            << itr->second->getLocation() << " and second found through " << n->getLocation()
-                            << " . An ArchData should be findable throug exactly 1 TreeNode";
-                    }
-                    adatas.push_back(ad);
-                    adatas_helper[ad] = n;
-                }
+            if (evt.getArchId() == arch_id)
+            {
+                return std::make_unique<Event>(evt);
             }
-            for (sparta::TreeNode* child : sparta::TreeNodePrivateAttorney::getAllChildren(n)) {
-                recurseFindArchDatas(child);
-            }
-        };
-
-        auto state = pegasus_sim_->getPegasusCore(core_id)->getPegasusState(hart_id);
-        auto system = pegasus_sim_->getPegasusCore(core_id)->getSystem();
-
-        recurseFindArchDatas(state->getContainer());
-        recurseFindArchDatas(system->getContainer());
-
-        if (adatas.empty())
-        {
-            throw sparta::SpartaException("No ArchDatas exist!");
         }
+
+        throw simdb::DBException("Internal error occurred. Cannot find event with arch ID ")
+            << arch_id << ". Core " << core_id << ", hart " << hart_id << ", database '"
+            << db_mgr_->getDatabaseFilePath() << "'.";
     }
 
     template <typename XLEN>
-    void CoSimEventReplayer::apply_(const Event & reload_evt, PegasusState* state, std::vector<sparta::ArchData*> & adatas)
+    void CoSimEventReplayer::apply_(
+        const Event & reload_evt,
+        PegasusState* state,
+        CheckpointReplayer & replayer)
     {
         static_assert(std::is_same_v<XLEN, uint32_t> || std::is_same_v<XLEN, uint64_t>);
-        sparta_assert(!adatas.empty());
-
-        [[maybe_unused]] auto core_id = reload_evt.getCoreId();
-        [[maybe_unused]] auto hart_id = reload_evt.getHartId();
 
         // pc
         state->setPc(reload_evt.getNextPc());
@@ -167,6 +207,7 @@ namespace pegasus::cosim
         state->setPrivMode(reload_evt.getNextPrivilegeMode(), state->getVirtualMode());
 
         // reservation
+        auto hart_id = reload_evt.getHartId();
         if (reload_evt.getEndReservation().isValid())
         {
             state->getCore()->getReservation(hart_id) = reload_evt.getEndReservation();
@@ -255,7 +296,7 @@ namespace pegasus::cosim
         }
 
         // memory / registers
-        // TODO cnyce
+        replayer.step();
     }
 
 } // namespace pegasus::cosim

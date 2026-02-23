@@ -162,14 +162,6 @@ namespace pegasus::cosim
         /// Recreate an old event from disk when it is no longer in the cache.
         std::unique_ptr<Event> recreateEventFromDisk_(uint64_t euid);
 
-        /// Reusable recreateFromDisk_: used by cosim event pipeline and
-        /// cosim event replayer.
-        static std::unique_ptr<Event>
-        recreateEventFromDisk_(uint64_t euid, simdb::DatabaseManager* db_mgr, CoreId core_id,
-                               HartId hart_id,
-                               simdb::pipeline::PipelineManager* pipeline_mgr = nullptr,
-                               simdb::RunningMean* runtime = nullptr);
-
         /// SimDB instance.
         simdb::DatabaseManager* db_mgr_ = nullptr;
 

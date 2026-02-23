@@ -215,7 +215,8 @@ template <typename XLEN> bool Compare(PegasusState* state_truth, PegasusState* s
     {
         const auto & ext_name = it->first;
         const auto truth_ext_enabled = extensions_map_truth.isEnabled(ext_name);
-        EXPECT_EQUAL(extensions_map_test.isEnabled(ext_name), truth_ext_enabled);
+        const auto test_ext_enabled = extensions_map_test.isEnabled(ext_name);
+        EXPECT_EQUAL(test_ext_enabled, truth_ext_enabled);
     }
 
     return ERROR_CODE == 0;
@@ -225,6 +226,15 @@ template <typename XLEN>
 bool AdvanceAndCompare(PegasusSim & sim_truth, PegasusCoSim & sim_test, CoreId core_id,
                        HartId hart_id, size_t max_steps_before_flush)
 {
+    // Verify that we are entering with the same state
+    auto state_truth = sim_truth.getPegasusCore(core_id)->getPegasusState(hart_id);
+    auto state_test =
+        sim_test.getPegasusSim().getPegasusCore(core_id)->getPegasusState(hart_id);
+
+    if (!Compare<XLEN>(state_truth, state_test)) {
+        return false;
+    }
+
     auto stepped_truth = StepSim(sim_truth, core_id, hart_id);
     auto stepped_test = max_steps_before_flush > 0
                             ? StepSimWithFlush(sim_test, core_id, hart_id, max_steps_before_flush)
@@ -233,9 +243,6 @@ bool AdvanceAndCompare(PegasusSim & sim_truth, PegasusCoSim & sim_test, CoreId c
     EXPECT_EQUAL(stepped_truth, stepped_test);
     if (stepped_truth && stepped_test)
     {
-        auto state_truth = sim_truth.getPegasusCore(core_id)->getPegasusState(hart_id);
-        auto state_test =
-            sim_test.getPegasusSim().getPegasusCore(core_id)->getPegasusState(hart_id);
         return Compare<XLEN>(state_truth, state_test);
     }
     return false;
@@ -245,15 +252,21 @@ template <typename XLEN>
 bool AdvanceAndCompareReplayer(PegasusSim & sim_truth, CoSimEventReplayer & sim_test,
                                CoreId core_id, HartId hart_id)
 {
+    // Verify that we are entering with the same state
+    auto state_truth = sim_truth.getPegasusCore(core_id)->getPegasusState(hart_id);
+    auto state_test =
+        sim_test.getPegasusSim().getPegasusCore(core_id)->getPegasusState(hart_id);
+
+    if (!Compare<XLEN>(state_truth, state_test)) {
+        return false;
+    }
+
     auto stepped_truth = StepSim(sim_truth, core_id, hart_id);
     auto stepped_test = StepSim(sim_test, core_id, hart_id);
 
     EXPECT_EQUAL(stepped_truth, stepped_test);
     if (stepped_truth && stepped_test)
     {
-        auto state_truth = sim_truth.getPegasusCore(core_id)->getPegasusState(hart_id);
-        auto state_test =
-            sim_test.getPegasusSim().getPegasusCore(core_id)->getPegasusState(hart_id);
         return Compare<XLEN>(state_truth, state_test);
     }
     return false;
