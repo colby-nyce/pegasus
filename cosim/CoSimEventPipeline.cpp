@@ -80,6 +80,17 @@ namespace pegasus::cosim
         tbl.createCompoundIndexOn(
             {"StartEuid", "EndEuid", "StartArchId", "EndArchId", "CoreId", "HartId"});
         tbl.unsetPrimaryKey();
+
+        // Support for CoSimEventReplayer.
+        auto add_ptree_table = [&](const std::string & table_name)
+        {
+            auto & ptree_values_tbl = schema.addTable(table_name);
+            ptree_values_tbl.addColumn("PTreePath", dt::string_t);
+            ptree_values_tbl.addColumn("PTreeValue", dt::string_t);
+        };
+
+        add_ptree_table("ArchParameterTree");
+        add_ptree_table("ConfigParameterTree");
     }
 
     class EventCompressorStage : public simdb::pipeline::Stage
@@ -170,6 +181,8 @@ namespace pegasus::cosim
                 for (auto & evt : evts)
                 {
                     evt.arch_id_ = arch_id_++;
+                    std::cout << "Processing event with EUID " << evt.getEuid() << " and assigned Arch ID " << evt.getArchId() << "\n";
+                    std::cout << "  current_uid: " << evt.getSimStateCurrentUID() << std::endl;
                 }
 
                 auto start_euid = UINT64_MAX;
@@ -370,8 +383,6 @@ namespace pegasus::cosim
         return pipeline_mgr_;
     }
 
-    void CoSimEventPipeline::setListener(EventListener* listener) { listener_ = listener; }
-
     void CoSimEventPipeline::onStep(Event && evt)
     {
         sparta_assert(core_id_ == evt.getCoreId() && hart_id_ == evt.getHartId(),
@@ -379,11 +390,6 @@ namespace pegasus::cosim
 
         uncommitted_evts_buffer_.emplace_back(std::move(evt));
         last_event_uid_ = uncommitted_evts_buffer_.back().getEuid();
-
-        if (listener_)
-        {
-            listener_->onNewEvent(getLastEvent());
-        }
     }
 
     void CoSimEventPipeline::commitOldest()
@@ -901,7 +907,8 @@ namespace pegasus::cosim
         }
 
         throw simdb::DBException("Internal error occurred. Cannot find event with uid ")
-            << euid << ".";
+            << euid << ". Core " << core_id_ << ", hart " << hart_id_ << ", database '"
+            << db_mgr_->getDatabaseFilePath() << "'.";
     }
 
     const Event* EventAccessor::operator->() { return get(); }

@@ -20,6 +20,7 @@ namespace pegasus::cosim
 {
     class CoSimEventPipeline;
     class CoSimObserver;
+    class CoSimEventReplayer;
 
     /*!
      * \class Event
@@ -400,6 +401,7 @@ namespace pegasus::cosim
         template <typename Archive> void serialize(Archive & ar, const unsigned int /*version*/)
         {
             ar & event_uid_;
+            ar & sim_state_current_uid_;
             ar & type_;
             ar & core_id_;
             ar & hart_id_;
@@ -440,6 +442,7 @@ namespace pegasus::cosim
         friend class CoSimObserver;
         friend class CoSimEventPipeline;
         friend class EventCompressorStage;
+        friend class CoSimEventReplayer;
     };
 
     inline std::ostream & operator<<(std::ostream & os, const Event::Type & type)
